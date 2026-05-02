@@ -12,7 +12,7 @@
 
 static const std::string_view _tag = "HAL-AppCenter";
 
-static const std::string_view _app_info_list_url = "http://47.113.125.164:12800/stackChan/apps";
+static const std::string_view _app_info_list_url = "http://YOUR_LINUX_LAN_IP:12800/stackChan/apps";
 
 static const char *get_json_string(cJSON *item, std::initializer_list<const char *> keys)
 {

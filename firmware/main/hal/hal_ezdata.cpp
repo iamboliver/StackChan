@@ -456,10 +456,6 @@ private:
 
 void Hal::startEzDataService(std::function<void(std::string_view)> onStartLog)
 {
-    mclog::tagInfo(_tag, "start ezdata service");
-
-    startNetwork(onStartLog);
-
-    onStartLog("Connecting to\nserver...");
-    mooncake::GetMooncake().extensionManager()->createAbility(std::make_unique<EzdataWorker>());
+    // EzData disabled — would send MAC address to M5Stack's cloud (uiflow2.m5stack.com)
+    mclog::tagWarn(_tag, "EzData service disabled (self-hosted build)");
 }
