@@ -30,10 +30,10 @@ static void _imu_task(void* param)
                 mclog::tagInfo(_tag, "Shake Detected!");
                 GetHAL().onImuMotionEvent.emit(ImuMotionEvent::Shake);
             }
-            // if (motion_detector->isPickUpDetected()) {
-            //     mclog::tagInfo(_tag, "Pick Up Detected!");
-            //     GetHAL().onImuMotionEvent.emit(ImuMotionEvent::PickUp);
-            // }
+            if (motion_detector->isPickUpDetected()) {
+                mclog::tagInfo(_tag, "Pick Up Detected!");
+                GetHAL().onImuMotionEvent.emit(ImuMotionEvent::PickUp);
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }

@@ -39,7 +39,6 @@ public:
         _prev_acc_z = acc_z;
 
         // --- Shake Detection ---
-        // printf("%.2f\n", diff);
         if (diff > _shake_threshold) {
             if (now - _last_shake_peak_time > 100) {       // Debounce 100ms
                 if (now - _last_shake_peak_time < 1000) {  // Window 1s
@@ -55,6 +54,16 @@ public:
                 }
             }
         }
+
+        // --- Pick-Up Detection ---
+        // Track slow baseline magnitude (gravity at rest ≈ 9.8 m/s²) to normalise for any
+        // static tilt. A spike >1.3× baseline indicates the upward jerk of being lifted.
+        float mag     = std::sqrt(acc_x * acc_x + acc_y * acc_y + acc_z * acc_z);
+        _baseline_mag = _baseline_mag * 0.98f + mag * 0.02f;
+        if (mag > _baseline_mag * 1.3f && now - _last_pickup_time > 3000) {
+            _pickup_detected  = true;
+            _last_pickup_time = now;
+        }
     }
 
     bool isShakeDetected()
@@ -66,14 +75,14 @@ public:
         return false;
     }
 
-    // bool isPickUpDetected()
-    // {
-    //     if (_pickup_detected) {
-    //         _pickup_detected = false;
-    //         return true;
-    //     }
-    //     return false;
-    // }
+    bool isPickUpDetected()
+    {
+        if (_pickup_detected) {
+            _pickup_detected = false;
+            return true;
+        }
+        return false;
+    }
 
 private:
     int _shake_count               = 0;
@@ -84,4 +93,8 @@ private:
     float _prev_acc_x = 0;
     float _prev_acc_y = 0;
     float _prev_acc_z = 0;
+
+    float _baseline_mag       = 9.8f;
+    uint32_t _last_pickup_time = 0;
+    bool _pickup_detected      = false;
 };

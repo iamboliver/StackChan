@@ -21,6 +21,8 @@ public:
         _signal_connection = GetHAL().onImuMotionEvent.connect([this](ImuMotionEvent event) {
             if (event == ImuMotionEvent::Shake) {
                 _event_shake = true;
+            } else if (event == ImuMotionEvent::PickUp) {
+                _event_pickup = true;
             }
         });
     }
@@ -34,9 +36,22 @@ public:
     {
         uint32_t now = GetHAL().millis();
 
+        // Pick-up: show curious expression briefly (shake takes priority if both fire at once)
+        if (_event_pickup && !_is_reacting) {
+            _event_pickup = false;
+            handle_pickup(stackchan, now);
+        }
+
+        if (_is_pickup_reacting && now >= _pickup_restore_at) {
+            restore_pickup(stackchan);
+        }
+
         // 收到晃动事件
         if (_event_shake) {
             _event_shake = false;
+            if (_is_pickup_reacting) {
+                restore_pickup(stackchan);
+            }
             handle_shake_start(stackchan, now);
         }
 
@@ -119,9 +134,32 @@ private:
         _is_reacting = false;
     }
 
+    void handle_pickup(Modifiable& stackchan, uint32_t now)
+    {
+        auto& avatar = stackchan.avatar();
+        if (avatar.isModifyLocked()) return;
+
+        avatar.setEmotion(avatar::Emotion::Doubt);
+        stackchan.motion().goHome(200);
+
+        _is_pickup_reacting = true;
+        _pickup_restore_at  = now + 2000;
+    }
+
+    void restore_pickup(Modifiable& stackchan)
+    {
+        if (!_is_pickup_reacting) return;
+        _is_pickup_reacting = false;
+
+        if (!stackchan.avatar().isModifyLocked()) {
+            stackchan.avatar().setEmotion(avatar::Emotion::Neutral);
+        }
+    }
+
     // 信号相关
     int _signal_connection;
-    volatile bool _event_shake = false;
+    volatile bool _event_shake  = false;
+    volatile bool _event_pickup = false;
 
     // 状态控制
     bool _is_reacting          = false;
@@ -132,6 +170,10 @@ private:
 
     int _dizzy_decorator_id = -1;
     int _shy_decorator_id   = -1;
+
+    // Pick-up state
+    bool _is_pickup_reacting    = false;
+    uint32_t _pickup_restore_at = 0;
 };
 
 }  // namespace stackchan

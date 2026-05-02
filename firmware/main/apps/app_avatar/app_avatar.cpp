@@ -88,6 +88,15 @@ void AppAvatar::onOpen()
     avatar->init(lv_screen_active());
     GetStackChan().attachAvatar(std::move(avatar));
 
+    // Background modifiers — always active while avatar is running
+    GetStackChan().addModifier(std::make_unique<BlinkModifier>());
+    GetStackChan().addModifier(std::make_unique<BreathModifier>());
+    GetStackChan().addModifier(std::make_unique<IdleMotionModifier>());
+    GetStackChan().addModifier(std::make_unique<IdleExpressionModifier>());
+    GetStackChan().addModifier(std::make_unique<HeadPetModifier>());
+    GetStackChan().addModifier(std::make_unique<ImuEventModifier>());
+    GetStackChan().addModifier(std::make_unique<BatteryFaceModifier>());
+
     /* ------------------------------- BLE events ------------------------------- */
     GetHAL().onBleAvatarData.connect([&](const char* data) {
         std::lock_guard<std::mutex> lock(_mutex);
