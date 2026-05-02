@@ -25,6 +25,15 @@
 #include <wifi_manager.h>
 #include "utils/jpeg_to_image/jpeg_decoder.h"
 #include "utils/secret_logic/secret_logic.h"
+#include <audio_codec.h>
+#include "esp_opus_enc.h"
+#include "esp_opus_dec.h"
+#include "esp_ae_rate_cvt.h"
+#include "esp_audio_types.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
+#include <atomic>
 
 static std::string _tag = "WS-Avatar";
 
@@ -33,6 +42,11 @@ static const std::string _setting_device_name_key = "device_name";
 
 class WebSocketAvatar {
 public:
+    ~WebSocketAvatar()
+    {
+        destroyAudio();
+    }
+
     enum class DataType : uint8_t {
         Opus              = 0x01,
         Jpeg              = 0x02,
@@ -197,15 +211,12 @@ public:
             ESP_LOGI(_tag.c_str(), "Received binary type: %d, len: %d", (int)type, (int)msg.data.size());
 
             switch (type) {
-                // Opus handled in OnData Fast Path
-                // case DataType::Opus: {
-                //     if (msg.data.size() > 5) {
-                //         auto packet = std::make_unique<AudioStreamPacket>();
-                //         packet->payload.assign(msg.data.begin() + 5, msg.data.end());
-                //         _audio_service.PushPacketToDecodeQueue(std::move(packet));
-                //     }
-                //     break;
-                // }
+                case DataType::Opus: {
+                    if (msg.data.size() > 5) {
+                        playOpusPacket(msg.data.data() + 5, msg.data.size() - 5);
+                    }
+                    break;
+                }
                 case DataType::StartCameraStream: {
                     ESP_LOGI(_tag.c_str(), "Start Camera Stream");
                     setStreamingEnabled(true);
@@ -357,9 +368,13 @@ public:
                     break;
                 }
                 case DataType::StartAudioStream: {
+                    ESP_LOGI(_tag.c_str(), "Start Audio Stream");
+                    startAudioCapture();
                     break;
                 }
                 case DataType::StopAudioStream: {
+                    ESP_LOGI(_tag.c_str(), "Stop Audio Stream");
+                    stopAudioCapture();
                     break;
                 }
                 default:
@@ -424,6 +439,252 @@ public:
         _is_streaming = enabled;
     }
 
+    /* ----------------------------- Audio Streaming ----------------------------- */
+
+    static constexpr int kOpusFrameDurationMs = 60;
+    static constexpr int kOpusSampleRate      = 16000;
+
+    void initAudio()
+    {
+        auto codec = Board::GetInstance().GetAudioCodec();
+        if (!codec) {
+            ESP_LOGE(_tag.c_str(), "No audio codec available");
+            return;
+        }
+
+        // Opus encoder: 16kHz mono, 60ms frames
+        esp_opus_enc_config_t enc_cfg = {
+            .sample_rate      = ESP_AUDIO_SAMPLE_RATE_16K,
+            .channel          = ESP_AUDIO_MONO,
+            .bits_per_sample  = ESP_AUDIO_BIT16,
+            .bitrate          = ESP_OPUS_BITRATE_AUTO,
+            .frame_duration   = ESP_OPUS_ENC_FRAME_DURATION_60_MS,
+            .application_mode = ESP_OPUS_ENC_APPLICATION_VOIP,
+            .complexity       = 0,
+            .enable_fec       = false,
+            .enable_dtx       = true,
+            .enable_vbr       = true,
+        };
+        auto ret = esp_opus_enc_open(&enc_cfg, sizeof(enc_cfg), &_opus_encoder);
+        if (!_opus_encoder) {
+            ESP_LOGE(_tag.c_str(), "Failed to create Opus encoder: %d", ret);
+            return;
+        }
+        esp_opus_enc_get_frame_size(_opus_encoder, &_enc_frame_size, &_enc_outbuf_size);
+        _enc_frame_samples = _enc_frame_size / sizeof(int16_t);
+
+        // Opus decoder: 16kHz mono, 60ms frames
+        esp_opus_dec_cfg_t dec_cfg = {
+            .sample_rate    = (uint32_t)kOpusSampleRate,
+            .channel        = ESP_AUDIO_MONO,
+            .frame_duration = ESP_OPUS_DEC_FRAME_DURATION_60_MS,
+            .self_delimited = false,
+        };
+        ret = esp_opus_dec_open(&dec_cfg, sizeof(dec_cfg), &_opus_decoder);
+        if (!_opus_decoder) {
+            ESP_LOGE(_tag.c_str(), "Failed to create Opus decoder: %d", ret);
+        }
+
+        // Input resampler: 24kHz -> 16kHz (hardware to Opus)
+        int hw_rate = codec->input_sample_rate();
+        if (hw_rate != kOpusSampleRate) {
+            esp_ae_rate_cvt_cfg_t in_cfg = {
+                .src_rate        = (uint32_t)hw_rate,
+                .dest_rate       = (uint32_t)kOpusSampleRate,
+                .channel         = 1,
+                .bits_per_sample = ESP_AUDIO_BIT16,
+                .complexity      = 2,
+                .perf_type       = ESP_AE_RATE_CVT_PERF_TYPE_SPEED,
+            };
+            esp_ae_rate_cvt_open(&in_cfg, &_input_resampler);
+        }
+
+        // Output resampler: 16kHz -> 24kHz (Opus to hardware)
+        int out_rate = codec->output_sample_rate();
+        if (out_rate != kOpusSampleRate) {
+            esp_ae_rate_cvt_cfg_t out_cfg = {
+                .src_rate        = (uint32_t)kOpusSampleRate,
+                .dest_rate       = (uint32_t)out_rate,
+                .channel         = 1,
+                .bits_per_sample = ESP_AUDIO_BIT16,
+                .complexity      = 2,
+                .perf_type       = ESP_AE_RATE_CVT_PERF_TYPE_SPEED,
+            };
+            esp_ae_rate_cvt_open(&out_cfg, &_output_resampler);
+        }
+
+        _audio_initialized = true;
+        ESP_LOGI(_tag.c_str(), "Audio initialized (hw: %d Hz, opus: %d Hz, frame: %d samples)",
+                 hw_rate, kOpusSampleRate, _enc_frame_samples);
+    }
+
+    void destroyAudio()
+    {
+        stopAudioCapture();
+        if (_opus_encoder)     { esp_opus_enc_close(_opus_encoder);       _opus_encoder = nullptr; }
+        if (_opus_decoder)     { esp_opus_dec_close(_opus_decoder);       _opus_decoder = nullptr; }
+        if (_input_resampler)  { esp_ae_rate_cvt_close(_input_resampler); _input_resampler = nullptr; }
+        if (_output_resampler) { esp_ae_rate_cvt_close(_output_resampler);_output_resampler = nullptr; }
+        _audio_initialized = false;
+    }
+
+    void startAudioCapture()
+    {
+        if (_is_audio_streaming) {
+            return;
+        }
+        if (!_audio_initialized) {
+            initAudio();
+        }
+        if (!_audio_initialized || !_opus_encoder) {
+            ESP_LOGE(_tag.c_str(), "Cannot start audio: not initialized");
+            return;
+        }
+
+        auto codec = Board::GetInstance().GetAudioCodec();
+        codec->EnableInput(true);
+
+        _is_audio_streaming = true;
+        _audio_task_done = xSemaphoreCreateBinary();
+
+        // Dedicated task for mic capture + encode + send
+        xTaskCreatePinnedToCore([](void* arg) {
+            auto* self = static_cast<WebSocketAvatar*>(arg);
+            self->audioCaptureTask();
+            if (self->_audio_task_done) {
+                xSemaphoreGive(self->_audio_task_done);
+            }
+            vTaskDelete(NULL);
+        }, "audio_capture", 4096 * 2, this, 6, &_audio_capture_task, 0);
+
+        ESP_LOGI(_tag.c_str(), "Audio capture started");
+        GetHAL().showRgbColor(0, 80, 0);  // Green LED = recording
+    }
+
+    void stopAudioCapture()
+    {
+        if (!_is_audio_streaming) {
+            return;
+        }
+        _is_audio_streaming = false;
+
+        // Wait for the task to exit before closing the codec
+        if (_audio_capture_task && _audio_task_done) {
+            xSemaphoreTake(_audio_task_done, pdMS_TO_TICKS(500));
+            _audio_capture_task = nullptr;
+        }
+        if (_audio_task_done) {
+            vSemaphoreDelete(_audio_task_done);
+            _audio_task_done = nullptr;
+        }
+
+        auto codec = Board::GetInstance().GetAudioCodec();
+        if (codec) {
+            codec->EnableInput(false);
+        }
+
+        ESP_LOGI(_tag.c_str(), "Audio capture stopped");
+        GetHAL().showRgbColor(0, 0, 0);  // LED off
+    }
+
+    void audioCaptureTask()
+    {
+        auto codec = Board::GetInstance().GetAudioCodec();
+        if (!codec) return;
+
+        const int hw_rate       = codec->input_sample_rate();
+        const int hw_channels   = codec->input_channels();
+        const int hw_samples    = (hw_rate * kOpusFrameDurationMs) / 1000;  // samples per channel
+        const int read_samples  = hw_samples * hw_channels;
+
+        std::vector<int16_t> hw_buf(read_samples);
+        std::vector<int16_t> mono_buf(hw_samples);
+        std::vector<uint8_t> opus_buf(_enc_outbuf_size);
+        std::vector<int16_t> resampled;
+        resampled.reserve(hw_samples);  // pre-allocate, reuse across iterations
+
+        while (_is_audio_streaming) {
+            // Read from mic via public InputData API
+            codec->InputData(hw_buf);
+
+            // Extract mono: channel 0 is mic, channel 1 is echo-reference (discarded)
+            for (int i = 0; i < hw_samples; i++) {
+                mono_buf[i] = hw_buf[i * hw_channels];
+            }
+
+            // Resample 24kHz -> 16kHz if needed
+            std::vector<int16_t>* pcm_for_encoder = &mono_buf;
+            if (_input_resampler) {
+                uint32_t in_samples = mono_buf.size();
+                uint32_t out_samples = 0;
+                esp_ae_rate_cvt_get_max_out_sample_num(_input_resampler, in_samples, &out_samples);
+                resampled.resize(out_samples);
+                uint32_t actual = out_samples;
+                esp_ae_rate_cvt_process(_input_resampler,
+                                        (esp_ae_sample_t)mono_buf.data(), in_samples,
+                                        (esp_ae_sample_t)resampled.data(), &actual);
+                resampled.resize(actual);
+                pcm_for_encoder = &resampled;
+            }
+
+            // Encode to Opus
+            int in_size  = pcm_for_encoder->size() * sizeof(int16_t);
+            int out_size = opus_buf.size();
+            auto enc_ret = esp_opus_enc_process(_opus_encoder,
+                                                (uint8_t*)pcm_for_encoder->data(), &in_size,
+                                                opus_buf.data(), &out_size);
+            if (enc_ret == ESP_AUDIO_ERR_OK && out_size > 0) {
+                sendPacket(DataType::Opus, opus_buf.data(), out_size);
+            }
+        }
+    }
+
+    void playOpusPacket(const uint8_t* data, size_t len)
+    {
+        if (!_audio_initialized) {
+            initAudio();
+        }
+        if (!_opus_decoder) {
+            return;
+        }
+
+        auto codec = Board::GetInstance().GetAudioCodec();
+        if (!codec) return;
+
+        if (!codec->output_enabled()) {
+            codec->EnableOutput(true);
+        }
+
+        // Decode Opus -> PCM (16kHz mono)
+        const int decoded_samples = kOpusSampleRate * kOpusFrameDurationMs / 1000;
+        std::vector<int16_t> pcm(decoded_samples);
+        int in_size  = (int)len;
+        int out_size = decoded_samples * sizeof(int16_t);
+
+        auto dec_ret = esp_opus_dec_process(_opus_decoder,
+                                            (uint8_t*)data, &in_size,
+                                            (uint8_t*)pcm.data(), &out_size);
+        if (dec_ret != ESP_AUDIO_ERR_OK || out_size <= 0) {
+            return;
+        }
+
+        int pcm_samples = out_size / sizeof(int16_t);
+
+        // Resample 16kHz -> 24kHz if needed, then write to speaker
+        if (_output_resampler) {
+            uint32_t out_max = 0;
+            esp_ae_rate_cvt_get_max_out_sample_num(_output_resampler, pcm_samples, &out_max);
+            std::vector<int16_t> upsampled(out_max);
+            uint32_t actual = out_max;
+            esp_ae_rate_cvt_process(_output_resampler,
+                                    (esp_ae_sample_t)pcm.data(), (uint32_t)pcm_samples,
+                                    (esp_ae_sample_t)upsampled.data(), &actual);
+            codec->OutputData(upsampled);
+        } else {
+            codec->OutputData(pcm);
+        }
+    }
+
 private:
     std::unique_ptr<WebSocket> _websocket;
     std::string _url;
@@ -436,6 +697,19 @@ private:
     std::queue<ReceivedMessage> _msg_queue;
 
     std::mutex _send_mutex;
+
+    // Audio streaming state
+    bool _audio_initialized                    = false;
+    std::atomic<bool> _is_audio_streaming      {false};
+    void* _opus_encoder                        = nullptr;
+    void* _opus_decoder                        = nullptr;
+    int _enc_frame_size                        = 0;
+    int _enc_frame_samples                     = 0;
+    int _enc_outbuf_size                       = 0;
+    esp_ae_rate_cvt_handle_t _input_resampler  = nullptr;
+    esp_ae_rate_cvt_handle_t _output_resampler = nullptr;
+    TaskHandle_t _audio_capture_task           = nullptr;
+    SemaphoreHandle_t _audio_task_done         = nullptr;
 
     void sendPacket(DataType type, const uint8_t* data, size_t len)
     {
