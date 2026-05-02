@@ -21,7 +21,7 @@ class Urls {
   /// Example: "192.168.1.100:8080/" or "api.example.com/"
   ///
   /// For development, you can use the commented local IP below
-  static const String url = "00.000.000.000:0000/";
+  static const String url = "100.78.196.20:12800/";
 
 
   /// Get the HTTP base URL for API requests

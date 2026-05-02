@@ -17,9 +17,9 @@ static const std::string_view _setting_ns              = "account";
 static const std::string_view _setting_username_key    = "username";
 static const std::string_view _setting_device_name_key = "device_name";
 
-static const std::string_view _get_user_account_info_url    = "http://47.113.125.164:12800/stackChan/device/user";
-static const std::string_view _get_device_info_url          = "http://47.113.125.164:12800/stackChan/device/info";
-static const std::string_view _unbind_user_account_info_url = "http://47.113.125.164:12800/stackChan/device/unbind";
+static const std::string_view _get_user_account_info_url    = "http://YOUR_LINUX_LAN_IP:12800/stackChan/device/user";
+static const std::string_view _get_device_info_url          = "http://YOUR_LINUX_LAN_IP:12800/stackChan/device/info";
+static const std::string_view _unbind_user_account_info_url = "http://YOUR_LINUX_LAN_IP:12800/stackChan/device/unbind";
 
 static bool request_authorized_get(std::string_view token, std::string_view url, std::string &response,
                                    std::function<void(std::string_view)> onLog)
