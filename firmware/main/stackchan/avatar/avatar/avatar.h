@@ -6,6 +6,7 @@
 #pragma once
 #include "elements/key_elements.h"
 #include "decorator.h"
+#include <lvgl.h>
 #include <memory>
 
 namespace stackchan::avatar {
@@ -40,6 +41,8 @@ public:
     {
         return _key_elements;
     }
+
+    virtual void setBgColor(lv_color_t color) {}
 
     virtual void setEmotion(const Emotion& emotion)
     {

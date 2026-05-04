@@ -77,7 +77,9 @@ public:
 
     void init()
     {
-        _url = fmt::format("{}/stackChan/ws?deviceType=StackChan", secret_logic::get_server_url());
+        _url = fmt::format("{}/stackChan/ws?deviceType=StackChan&mac={}",
+                           secret_logic::get_server_url(),
+                           GetHAL().getFactoryMacString(""));
 
         connect();
 
@@ -628,13 +630,17 @@ public:
             }
 
             // Encode to Opus
-            int in_size  = pcm_for_encoder->size() * sizeof(int16_t);
-            int out_size = opus_buf.size();
-            auto enc_ret = esp_opus_enc_process(_opus_encoder,
-                                                (uint8_t*)pcm_for_encoder->data(), &in_size,
-                                                opus_buf.data(), &out_size);
-            if (enc_ret == ESP_AUDIO_ERR_OK && out_size > 0) {
-                sendPacket(DataType::Opus, opus_buf.data(), out_size);
+            esp_audio_enc_in_frame_t enc_in = {
+                .buffer = (uint8_t*)pcm_for_encoder->data(),
+                .len    = (uint32_t)(pcm_for_encoder->size() * sizeof(int16_t))
+            };
+            esp_audio_enc_out_frame_t enc_out = {
+                .buffer = opus_buf.data(),
+                .len    = (uint32_t)opus_buf.size()
+            };
+            auto enc_ret = esp_opus_enc_process(_opus_encoder, &enc_in, &enc_out);
+            if (enc_ret == ESP_AUDIO_ERR_OK && enc_out.encoded_bytes > 0) {
+                sendPacket(DataType::Opus, opus_buf.data(), enc_out.encoded_bytes);
             }
         }
     }
@@ -661,14 +667,20 @@ public:
         int in_size  = (int)len;
         int out_size = decoded_samples * sizeof(int16_t);
 
-        auto dec_ret = esp_opus_dec_process(_opus_decoder,
-                                            (uint8_t*)data, &in_size,
-                                            (uint8_t*)pcm.data(), &out_size);
-        if (dec_ret != ESP_AUDIO_ERR_OK || out_size <= 0) {
+        esp_audio_dec_in_raw_t dec_in = {
+            .buffer = (uint8_t*)data,
+            .len    = (uint32_t)in_size
+        };
+        esp_audio_dec_out_frame_t dec_out = {
+            .buffer = (uint8_t*)pcm.data(),
+            .len    = (uint32_t)out_size
+        };
+        auto dec_ret = esp_opus_dec_decode(_opus_decoder, &dec_in, &dec_out, nullptr);
+        if (dec_ret != ESP_AUDIO_ERR_OK || dec_out.decoded_size <= 0) {
             return;
         }
 
-        int pcm_samples = out_size / sizeof(int16_t);
+        int pcm_samples = dec_out.decoded_size / sizeof(int16_t);
 
         // Resample 16kHz -> 24kHz if needed, then write to speaker
         if (_output_resampler) {

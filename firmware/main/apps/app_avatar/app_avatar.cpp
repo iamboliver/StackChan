@@ -83,8 +83,8 @@ void AppAvatar::onOpen()
     // Destroy loading page
     loading_page.reset();
 
-    // Create default avatar
-    auto avatar = std::make_unique<avatar::DefaultAvatar>();
+    // Create enhanced avatar
+    auto avatar = std::make_unique<avatar::EnhancedAvatar>();
     avatar->init(lv_screen_active());
     GetStackChan().attachAvatar(std::move(avatar));
 

@@ -6,6 +6,7 @@
 #include "json_helper.h"
 #include <ArduinoJson.hpp>
 #include <mooncake_log.h>
+#include <cstdlib>
 
 static const char* _tag = "stackchan-json";
 
@@ -49,6 +50,24 @@ void update_from_json(Avatar* avatar, const char* jsonContent)
     if (error) {
         mclog::tagError(_tag, "deserializeJson failed: {}", error.c_str());
         return;
+    }
+
+    if (doc["bgColor"].is<std::string>()) {
+        std::string hex = doc["bgColor"].as<std::string>();
+        if (!hex.empty() && hex[0] == '#') hex = hex.substr(1);
+        uint32_t val = std::strtoul(hex.c_str(), nullptr, 16);
+        avatar->setBgColor(lv_color_hex(val));
+    }
+
+    if (doc["emotion"].is<std::string>()) {
+        std::string em = doc["emotion"].as<std::string>();
+        Emotion emotion = Emotion::Neutral;
+        if      (em == "Happy")   emotion = Emotion::Happy;
+        else if (em == "Angry")   emotion = Emotion::Angry;
+        else if (em == "Sad")     emotion = Emotion::Sad;
+        else if (em == "Doubt")   emotion = Emotion::Doubt;
+        else if (em == "Sleepy")  emotion = Emotion::Sleepy;
+        avatar->setEmotion(emotion);
     }
 
     if (doc["leftEye"].is<ArduinoJson::JsonObject>()) {

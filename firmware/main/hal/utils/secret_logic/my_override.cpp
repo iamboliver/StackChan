@@ -8,7 +8,7 @@ namespace secret_logic {
 
 std::string get_server_url()
 {
-    return "http://YOUR_LINUX_LAN_IP:12800";
+    return "http://192.168.1.240:12800";
 }
 
 std::string generate_auth_token()
