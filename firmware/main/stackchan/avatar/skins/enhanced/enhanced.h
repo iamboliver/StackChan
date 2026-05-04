@@ -20,7 +20,8 @@ namespace stackchan::avatar {
 class EnhancedAvatar : public Avatar {
 public:
     lv_color_t primaryColor   = lv_color_white();
-    lv_color_t secondaryColor = lv_color_hex(0xD0E8FF);
+    lv_color_t secondaryColor = lv_color_hex(0x2C3E50);  // dark slate — pupil, eyelid, text
+    lv_color_t bgColor        = lv_color_hex(0xD0E8FF);  // panel + mouth cover
 
     void init(lv_obj_t* parent, const lv_font_t* font = &lv_font_montserrat_16);
     void setBgColor(lv_color_t color) override;
@@ -73,6 +74,7 @@ public:
     void setRotation(int rotation) override;
     void setEmotion(const Emotion& emotion) override;
     void setVisible(bool visible) override;
+    void setCoverColor(lv_color_t color);
 
 private:
     std::unique_ptr<uitk::lvgl_cpp::Container> _container;

@@ -64,7 +64,7 @@ EnhancedEyes::EnhancedEyes(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t
     _iris->setSize(kIrisSize, kIrisSize);
     _iris->align(LV_ALIGN_CENTER, 0, 0);
     _iris->setBorderWidth(0);
-    _iris->setBgColor(lv_color_hex(0x00BCD4));
+    _iris->setBgColor(lv_color_hex(0x4A90D9));
     _iris->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
 
     // Pupil — black circle on top of iris

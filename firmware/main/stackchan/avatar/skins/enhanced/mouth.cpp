@@ -35,7 +35,7 @@ EnhancedMouth::EnhancedMouth(lv_obj_t* parent, lv_color_t primaryColor, lv_color
     _mouth_base->setSize(kMouthContainerSize, kMouthContainerSize);
     _mouth_base->align(LV_ALIGN_CENTER, 0, 0);
     _mouth_base->setBorderWidth(0);
-    _mouth_base->setBgColor(lv_color_hex(0xFF7BAC));
+    _mouth_base->setBgColor(lv_color_hex(0xD4708A));
     _mouth_base->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
 
     _mouth_cover = std::make_unique<Container>(_container->get());
@@ -97,6 +97,11 @@ void EnhancedMouth::setEmotion(const Emotion& emotion)
         default: break;
     }
     _apply_cover();
+}
+
+void EnhancedMouth::setCoverColor(lv_color_t color)
+{
+    if (_mouth_cover) _mouth_cover->setBgColor(color);
 }
 
 void EnhancedMouth::setVisible(bool visible)

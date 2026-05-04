@@ -15,20 +15,22 @@ void EnhancedAvatar::init(lv_obj_t* parent, const lv_font_t* font)
     _panel->setSize(320, 240);
     _panel->setRadius(0);
     _panel->setBorderWidth(0);
-    _panel->setBgColor(secondaryColor);
+    _panel->setBgColor(bgColor);
     _panel->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
 
     _key_elements.leftEye  = std::make_unique<EnhancedEyes>(_panel->get(), primaryColor, secondaryColor, true);
     _key_elements.rightEye = std::make_unique<EnhancedEyes>(_panel->get(), primaryColor, secondaryColor, false);
-    _key_elements.mouth    = std::make_unique<EnhancedMouth>(_panel->get(), primaryColor, secondaryColor);
+    _key_elements.mouth    = std::make_unique<EnhancedMouth>(_panel->get(), primaryColor, bgColor);
     _key_elements.speechBubble =
         std::make_unique<DefaultSpeechBubble>(_panel->get(), primaryColor, secondaryColor, font);
 }
 
 void EnhancedAvatar::setBgColor(lv_color_t color)
 {
-    secondaryColor = color;
+    bgColor = color;
     if (_panel) _panel->setBgColor(color);
+    auto* mouth = dynamic_cast<EnhancedMouth*>(_key_elements.mouth.get());
+    if (mouth) mouth->setCoverColor(color);
 }
 
 Container* EnhancedAvatar::getPanel() const
