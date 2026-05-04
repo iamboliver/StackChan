@@ -45,7 +45,13 @@ func InitRSAKeys() error {
 	clientPublicKeyStr := g.Cfg().MustGet(ctx, "rsa.client.public").String()
 	clientPrivateKeyStr := g.Cfg().MustGet(ctx, "rsa.client.private").String()
 
-	// Check if keys are empty
+	// If no keys are configured, skip RSA init (simple auth mode)
+	if serverPublicKeyStr == "" && serverPrivateKeyStr == "" &&
+		clientPublicKeyStr == "" && clientPrivateKeyStr == "" {
+		return nil
+	}
+
+	// Partial key config is an error
 	if serverPublicKeyStr == "" {
 		return errors.New("server public key not found in config")
 	}

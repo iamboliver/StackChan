@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gorilla/websocket"
@@ -76,7 +77,19 @@ var (
 
 // GetMac get MAC address from request header
 func GetMac(r *ghttp.Request) (string, error) {
-	if token := r.Header.Get(model.Authorization); token != "" {
+	token := r.Header.Get(model.Authorization)
+
+	// Simple auth mode: plain token + mac query param, no RSA needed (self-hosted testbed)
+	if simpleToken := g.Cfg().MustGet(r.Context(), "websocket.simple_auth_token").String(); simpleToken != "" && token == simpleToken {
+		mac := r.GetQuery("mac", "").String()
+		mac = strings.ReplaceAll(mac, ":", "")
+		if mac == "" {
+			return "", gerror.New("mac query param required in simple auth mode")
+		}
+		return mac, nil
+	}
+
+	if token != "" {
 		decodedToken, err := base64.StdEncoding.DecodeString(token)
 		if err != nil {
 			logger.Errorf(r.Context(), "Error base64 decoding token: %v", err)
