@@ -23,6 +23,11 @@ void EnhancedAvatar::init(lv_obj_t* parent, const lv_font_t* font)
     _key_elements.mouth    = std::make_unique<EnhancedMouth>(_panel->get(), primaryColor, bgColor);
     _key_elements.speechBubble =
         std::make_unique<DefaultSpeechBubble>(_panel->get(), primaryColor, secondaryColor, font);
+
+    _ear = std::make_unique<EnhancedEar>(_panel->get(),
+        lv_color_hex(0xD4708A),  // outer — matches mouth
+        lv_color_hex(0xC4607A),  // inner concha
+        secondaryColor);          // canal — dark slate
 }
 
 void EnhancedAvatar::setBgColor(lv_color_t color)
@@ -31,6 +36,11 @@ void EnhancedAvatar::setBgColor(lv_color_t color)
     if (_panel) _panel->setBgColor(color);
     auto* mouth = dynamic_cast<EnhancedMouth*>(_key_elements.mouth.get());
     if (mouth) mouth->setCoverColor(color);
+}
+
+void EnhancedAvatar::showListeningEar(bool show)
+{
+    if (_ear) _ear->show(show);
 }
 
 Container* EnhancedAvatar::getPanel() const

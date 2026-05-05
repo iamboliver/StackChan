@@ -60,6 +60,8 @@ const (
 	OffAudio byte = 0x19
 
 	AimedTakePhoto byte = 0x1A
+
+	DoubleTap byte = 0x1B
 )
 
 var (
@@ -468,6 +470,12 @@ func readStackChanMessage(ctx context.Context, client *model.StackChanClient, me
 		case AimedTakePhoto:
 			appClient := client.GetAimedTakePhotoAppClient()
 			if appClient != nil {
+				appSendMessage(ctx, appClient, messageType, msg)
+			}
+			break
+		case DoubleTap:
+			appClients := getAppClients(client.GetMac())
+			for _, appClient := range appClients {
 				appSendMessage(ctx, appClient, messageType, msg)
 			}
 			break

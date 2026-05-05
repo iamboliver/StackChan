@@ -43,6 +43,7 @@ public:
     }
 
     virtual void setBgColor(lv_color_t color) {}
+    virtual void showListeningEar(bool show) {}
 
     virtual void setEmotion(const Emotion& emotion)
     {

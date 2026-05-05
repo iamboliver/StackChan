@@ -68,6 +68,7 @@ public:
         DanceSequence     = 0x14,
         StartAudioStream  = 0x18,
         StopAudioStream   = 0x19,
+        DoubleTap         = 0x1B,
     };
 
     struct ReceivedMessage {
@@ -108,6 +109,13 @@ public:
 
             ESP_LOGI(_tag.c_str(), "Sending EndCall");
             sendPacket(DataType::EndCall, nullptr, 0);
+        });
+
+        GetHAL().onImuMotionEvent.connect([this](ImuMotionEvent event) {
+            if (event == ImuMotionEvent::DoubleTap && isConnected()) {
+                ESP_LOGI(_tag.c_str(), "Double tap — notifying server");
+                sendPacket(DataType::DoubleTap, nullptr, 0);
+            }
         });
     }
 
@@ -553,11 +561,13 @@ public:
         xTaskCreatePinnedToCore([](void* arg) {
             auto* self = static_cast<WebSocketAvatar*>(arg);
             self->audioCaptureTask();
+            ESP_LOGI("audio_capture", "stack high-water mark: %u bytes free",
+                     uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t));
             if (self->_audio_task_done) {
                 xSemaphoreGive(self->_audio_task_done);
             }
             vTaskDelete(NULL);
-        }, "audio_capture", 4096 * 2, this, 6, &_audio_capture_task, 0);
+        }, "audio_capture", 4096 * 8, this, 6, &_audio_capture_task, 0);
 
         ESP_LOGI(_tag.c_str(), "Audio capture started");
         GetHAL().showRgbColor(0, 80, 0);  // Green LED = recording

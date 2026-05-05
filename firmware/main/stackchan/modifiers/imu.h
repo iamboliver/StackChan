@@ -23,6 +23,8 @@ public:
                 _event_shake = true;
             } else if (event == ImuMotionEvent::PickUp) {
                 _event_pickup = true;
+            } else if (event == ImuMotionEvent::DoubleTap) {
+                _event_double_tap = true;
             }
         });
     }
@@ -35,6 +37,18 @@ public:
     void _update(Modifiable& stackchan) override
     {
         uint32_t now = GetHAL().millis();
+
+        // Double-tap: show listening ear for 8 seconds
+        if (_event_double_tap) {
+            _event_double_tap = false;
+            stackchan.avatar().showListeningEar(true);
+            _is_ear_shown = true;
+            _ear_hide_at  = now + 8000;
+        }
+        if (_is_ear_shown && now >= _ear_hide_at) {
+            stackchan.avatar().showListeningEar(false);
+            _is_ear_shown = false;
+        }
 
         // Pick-up: show curious expression briefly (shake takes priority if both fire at once)
         if (_event_pickup && !_is_reacting) {
@@ -158,8 +172,13 @@ private:
 
     // 信号相关
     int _signal_connection;
-    volatile bool _event_shake  = false;
-    volatile bool _event_pickup = false;
+    volatile bool _event_shake      = false;
+    volatile bool _event_pickup     = false;
+    volatile bool _event_double_tap = false;
+
+    // Listening ear state
+    bool     _is_ear_shown = false;
+    uint32_t _ear_hide_at  = 0;
 
     // 状态控制
     bool _is_reacting          = false;

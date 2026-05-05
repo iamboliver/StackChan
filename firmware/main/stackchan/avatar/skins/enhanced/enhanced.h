@@ -17,6 +17,23 @@ namespace stackchan::avatar {
  * @brief Enhanced avatar skin — layered anime-style eyes with iris/pupil/highlight,
  *        curved eyelid, and a coral-coloured arc mouth.
  */
+class EnhancedEar {
+public:
+    EnhancedEar(lv_obj_t* parent, lv_color_t outerColor, lv_color_t innerColor, lv_color_t canalColor);
+    ~EnhancedEar();
+    void show(bool visible);
+
+private:
+    void startPulse();
+    void stopPulse();
+
+    std::unique_ptr<uitk::lvgl_cpp::Container> _container;
+    std::unique_ptr<uitk::lvgl_cpp::Container> _outer;
+    std::unique_ptr<uitk::lvgl_cpp::Container> _inner;
+    std::unique_ptr<uitk::lvgl_cpp::Container> _canal;
+    lv_anim_t _anim{};
+};
+
 class EnhancedAvatar : public Avatar {
 public:
     lv_color_t primaryColor   = lv_color_white();
@@ -25,10 +42,12 @@ public:
 
     void init(lv_obj_t* parent, const lv_font_t* font = &lv_font_montserrat_16);
     void setBgColor(lv_color_t color) override;
+    void showListeningEar(bool show) override;
     uitk::lvgl_cpp::Container* getPanel() const;
 
 private:
     std::unique_ptr<uitk::lvgl_cpp::Container> _panel;
+    std::unique_ptr<EnhancedEar> _ear;
 };
 
 /**

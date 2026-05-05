@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env tools/.venv/bin/python3
 """
 StackChan STT bridge — subscribes to robot audio, decodes Opus, transcribes with Whisper.
 
@@ -22,8 +22,10 @@ import whisper
 import websocket
 
 # ── Protocol constants ────────────────────────────────────────────────────────
-TYPE_OPUS     = 0x01
-TYPE_ON_AUDIO = 0x18
+TYPE_OPUS       = 0x01
+TYPE_ON_AUDIO   = 0x18
+TYPE_PONG       = 0x10
+TYPE_DOUBLE_TAP = 0x1B
 
 # ── Audio constants ───────────────────────────────────────────────────────────
 SAMPLE_RATE       = 16_000
@@ -80,15 +82,25 @@ class STTBridge:
         log("INIT", f"Whisper ready in {time.time()-t0:.1f}s")
 
         self.decoder     = opuslib.Decoder(SAMPLE_RATE, 1)
-        self.vad         = webrtcvad.Vad(vad_level)
-        self.q           = queue.Queue()
+        self.vad          = webrtcvad.Vad(vad_level)
+        self.q            = queue.Queue()
         self._first_frame = None
+        self._listening   = False
 
     # ── WebSocket callbacks ───────────────────────────────────────────────────
 
     def _on_open(self, ws):
         log("CONNECT", f"subscribing to audio for {self.mac}")
         ws.send(build_packet(TYPE_ON_AUDIO, self.mac.encode()), websocket.ABNF.OPCODE_BINARY)
+        threading.Thread(target=self._heartbeat_loop, args=(ws,), daemon=True).start()
+
+    def _heartbeat_loop(self, ws):
+        while True:
+            time.sleep(10)
+            try:
+                ws.send(build_packet(TYPE_PONG, b""), websocket.ABNF.OPCODE_BINARY)
+            except Exception:
+                break
 
     def _on_message(self, ws, data):
         if not isinstance(data, (bytes, bytearray)):
@@ -104,6 +116,9 @@ class STTBridge:
                 self.q.put((pcm, t_recv))
             except Exception:
                 pass  # occasional malformed frames; skip silently
+        elif msg_type == TYPE_DOUBLE_TAP:
+            self._listening = True
+            log("LISTENING", "double-tap received — listening for speech")
 
     def _on_error(self, ws, err):
         log("ERROR", str(err))
@@ -132,6 +147,13 @@ class STTBridge:
 
             while len(buf) >= VAD_FRAME_BYTES:
                 frame, buf = buf[:VAD_FRAME_BYTES], buf[VAD_FRAME_BYTES:]
+
+                if not self._listening:
+                    # Discard all buffered audio until double-tap wakes us up
+                    buf = b""
+                    utterance, silence_count, in_speech = b"", 0, False
+                    break
+
                 speech = self.vad.is_speech(frame, SAMPLE_RATE)
 
                 if speech:
@@ -151,6 +173,8 @@ class STTBridge:
                                           f"vad_wall={speech_end - speech_start:.2f}s")
                         self._run_whisper(utterance, speech_start)
                         utterance, silence_count, in_speech, speech_start = b"", 0, False, None
+                        self._listening = False
+                        log("IDLE", "utterance complete — double-tap to listen again")
 
     def _run_whisper(self, pcm: bytes, speech_start: float):
         audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0

@@ -48,6 +48,7 @@ enum class ImuMotionEvent {
     None = 0,
     Shake,
     PickUp,
+    DoubleTap,
 };
 
 /**
